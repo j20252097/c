@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>ミュージックプレイヤー</title>
+
+<!-- アイコン / PWA -->
+<link rel="icon" href="https://raw.githubusercontent.com/j20252097/a/refs/heads/main/Guild.png" />
+<link rel="apple-touch-icon" href="https://raw.githubusercontent.com/j20252097/a/refs/heads/main/Guild.png" />
+<link rel="manifest" href="manifest.json" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="ミュージックプレイヤー" />
+<meta name="theme-color" content="#a58ff7" />
+
+<style>
+  :root{
+    --accent:#a58ff7;
+    --accent-2:#ff8cb0;
+  }
+  html,body{height:100%;margin:0;font-family:"Hiragino Sans","Noto Sans JP",sans-serif;background:linear-gradient(135deg,#fcecff,#eafff8,#e0e8ff);overflow-x:hidden;-webkit-font-smoothing:antialiased;}
+  /* canvases */
+  #particles,#wave{position:fixed;left:0;top:0;width:100vw;height:100vh;z-index:0;pointer-events:none;}
+  h1{text-align:center;color:#6a5acd;margin:22px 0 6px;z-index:2;position:relative;}
+  /* player card */
+  #player{max-width:760px;margin:16px auto 94px;background:#fff;border-radius:14px;padding:18px;box-shadow:0 8px 30px rgba(25,20,40,0.06);position:relative;z-index:2;display:grid;grid-template-columns:120px 1fr;gap:16px;align-items:start;}
+  .artwrap{width:120px;height:120px;border-radius:12px;background:linear-gradient(180deg,#fff,#f3f0ff);display:flex;align-items:center;justify-content:center;box-shadow: 10px 10px 30px rgba(160,150,200,0.06);overflow:hidden;}
+  .artwrap img{width:100%;height:100%;object-fit:cover;transition:transform .6s linear;}
+  .artwrap.playing img{animation:rotateAlbum 6s linear infinite;}
+  @keyframes rotateAlbum{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+
+  .maincol{display:flex;flex-direction:column;gap:8px;}
+  #info{font-size:1rem;color:#222;margin-top:8px;}
+  #metaSmall{font-size:0.9rem;color:#666;}
+
+  #progressContainer{grid-column:1 / -1;width:100%;height:12px;background:#eee;border-radius:12px;margin-top:6px;cursor:pointer;overflow:hidden;position:relative;}
+  #progressBar{height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent-2));transition:width .08s linear;}
+  #timeDisplay{grid-column:1 / -1;text-align:center;font-size:0.95rem;color:#444;margin-top:6px;}
+
+  .controls{grid-column:1 / -1;display:flex;gap:8px;align-items:center;justify-content:center;margin-top:6px;}
+  button{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:8px 12px;cursor:pointer;transition:transform .15s,box-shadow .15s;}
+  button:hover{transform:translateY(-3px);background:#8c73e6;}
+  button.active{background:var(--accent-2);}
+  .ripple-btn{position:relative;overflow:hidden;}
+
+  .sliderContainer{display:flex;flex-direction:column;gap:6px;padding:10px;background:linear-gradient(180deg,#faf9ff,#fff);border-radius:10px;}
+  input[type="range"]{width:220px;-webkit-appearance:none;appearance:none;height:6px;border-radius:6px;background:linear-gradient(90deg,var(--accent),var(--accent-2));outline:none;}
+  input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:#fff;border:3px solid var(--accent);box-shadow:0 4px 12px rgba(160,150,200,0.25);cursor:pointer;}
+
+  #searchBox,#artistFilter{width:90%;max-width:360px;padding:8px;border-radius:8px;border:1px solid #eee;margin:8px auto;display:block;}
+  #trackList{grid-column:1 / -1;margin-top:12px;max-height:360px;overflow:auto;padding-bottom:10px;}
+  .track{display:flex;justify-content:space-between;align-items:center;padding:12px;margin:8px;border-radius:10px;cursor:pointer;box-shadow:6px 6px 16px rgba(180,170,210,0.06), -6px -6px 16px rgba(255,255,255,0.9);background:#fff;}
+  .track.playing{background:linear-gradient(90deg,#f7f6ff,#fff);border-left:6px solid var(--accent);transform:translateY(-3px);}
+  .favorite{font-size:1.1rem;color:#cfcfcf;cursor:pointer;padding:6px;border-radius:8px;}
+  .favorite.active{color:#ff6781;transform:scale(1.05);}
+
+  /* ripple animation */
+  .ripple{position:absolute;border-radius:50%;transform:scale(0);background:rgba(255,255,255,0.45);animation:rippleAnim .6s linear;pointer-events:none;}
+  @keyframes rippleAnim{to{transform:scale(4);opacity:0;}}
+
+  /* mini player (bottom) */
+  #miniPlayer{position:fixed;left:12px;right:12px;bottom:12px;background:linear-gradient(90deg,#fff,#f8f7ff);border-radius:12px;box-shadow:0 10px 30px rgba(20,10,40,0.08);z-index:9999;display:flex;align-items:center;gap:12px;padding:8px 12px;display:none;}
+  #miniPlayer .mini-title{flex:1;font-size:0.95rem;color:#222;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  #miniPlayer button{padding:8px;min-width:40px;}
+
+  @media (max-width:720px){
+    #player{grid-template-columns:1fr;padding:12px;}
+    .artwrap{width:96px;height:96px;margin:0 auto;}
+  }
+  footer{text-align:center;color:#666;margin-top:18px;}
+</style>
+</head>
+<body>
+
+<canvas id="particles"></canvas>
+<canvas id="wave"></canvas>
+
+<h1>ミュージックプレイヤー</h1>
+
+<div id="player">
+  <div class="artwrap" id="artwrap"><img id="artImg" src="https://raw.githubusercontent.com/j20252097/a/refs/heads/main/Guild.png" alt="art" /></div>
+
+  <div class="maincol">
+    <div id="info">読み込み待ち...</div>
+    <div id="metaSmall">---</div>
+
+    <div id="progressContainer" title="クリックでシーク"><div id="progressBar"></div></div>
+    <div id="timeDisplay">0:00</div>
+
+    <div class="controls">
+      <button id="prevBtn" class="ripple-btn">⏮</button>
+      <button id="playBtn" class="ripple-btn floating">▶️ 再生</button>
+      <button id="nextBtn" class="ripple-btn">⏭</button>
+    </div>
+
+    <div class="controls" style="justify-content:center;">
+      <button id="shuffleBtn" class="ripple-btn">🔀</button>
+      <button id="repeatBtn" class="ripple-btn">🔁 リピート: オフ</button>
+      <button id="favModeBtn" class="ripple-btn">❤️ お気に入りのみ</button>
+    </div>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+      <div class="sliderContainer">
+        <label>🔊 音量: <span id="volumeValue">80</span>%</label>
+        <input type="range" id="volumeSlider" min="0" max="1" step="0.01" />
+      </div>
+      <div class="sliderContainer">
+        <label>⚡ 再生速度: <span id="speedValue">1.0</span>x</label>
+        <input type="range" id="speedSlider" min="0.5" max="2" step="0.1" />
+      </div>
+    </div>
+  </div>
+
+  <audio id="audioPlayer" preload="metadata"></audio>
+
+  <div style="grid-column:1 / -1;margin-top:8px;">
+    <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;">
+      <div style="min-width:220px;max-width:260px;background:linear-gradient(180deg,#fff,#fbfbff);padding:10px;border-radius:10px;box-shadow:4px 6px 18px rgba(160,150,200,0.04);">
+        <h3 style="margin:6px 0 8px;font-size:0.95rem;color:#444">ローカルフォルダ</h3>
+        <input id="newFolderName" placeholder="新しいフォルダ名" style="width:100%;padding:8px;border-radius:8px;border:1px solid #eee;box-sizing:border-box;" />
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button id="createFolderBtn" class="ripple-btn" style="flex:1;padding:8px">フォルダ作成</button>
+        </div>
+        <hr style="border:none;border-top:1px solid #f0f0f5;margin:10px 0">
+        <div id="foldersList" style="max-height:220px;overflow:auto;padding-right:6px"></div>
+      </div>
+
+      <div style="flex:1;min-width:260px;">
+        <input id="searchBox" placeholder="🔍 曲名やアーティストで検索..." />
+        <select id="artistFilter"><option value="">すべてのアーティスト</option></select>
+
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
+          <input id="fileInput" type="file" accept="audio/*" multiple style="flex:1" />
+          <button id="uploadToFolderBtn" class="ripple-btn">アップロード</button>
+        </div>
+
+        <div id="trackList" style="margin-top:10px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- mini player -->
+<div id="miniPlayer">
+  <button id="miniPrev">⏮</button>
+  <button id="miniPlay">▶️</button>
+  <div class="mini-title" id="miniTitle">---</div>
+  <div style="width:120px;height:8px;background:#eee;border-radius:8px;overflow:hidden;">
+    <div id="miniProgress" style="height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent-2));"></div>
+  </div>
+</div>
+
+<footer>© 2025 MusicProject 🎶</footer>
+
+<script>
+/* ---------------------------
+   完全版 — ミニプレイヤー復活・時刻表示修正・スキップ修正
+   - tracks.json を同ディレクトリに配置してください
+   --------------------------- */
+
+const audio = document.getElementById('audioPlayer');
+const playBtn = document.getElementById('playBtn');
+const prevBtn = document.getElementById('prevBtn');
+const nextBtn = document.getElementById('nextBtn');
+const shuffleBtn = document.getElementById('shuffleBtn');
+const repeatBtn = document.getElementById('repeatBtn');
+const favModeBtn = document.getElementById('favModeBtn');
+const progressContainer = document.getElementById('progressContainer');
+const progressBar = document.getElementById('progressBar');
+const timeDisplay = document.getElementById('timeDisplay');
+const volumeSlider = document.getElementById('volumeSlider');
+const speedSlider = document.getElementById('speedSlider');
+const volumeValue = document.getElementById('volumeValue');
+const speedValue = document.getElementById('speedValue');
+const info = document.getElementById('info');
+const metaSmall = document.getElementById('metaSmall');
+const searchBox = document.getElementById('searchBox');
+const artistFilter = document.getElementById('artistFilter');
+const trackListEl = document.getElementById('trackList');
+const artwrap = document.getElementById('artwrap');
+const artImg = document.getElementById('artImg');
+
+const mini = document.getElementById('miniPlayer');
+const miniPlay = document.getElementById('miniPlay');
+const miniPrev = document.getElementById('miniPrev');
+const miniTitle = document.getElementById('miniTitle');
+const miniProgress = document.getElementById('miniProgress');
+
+let tracks = [];
+let filteredIndices = [];
+let currentFilteredIndex = 0;
+let currentTrackIndex = 0;
+let favorites = JSON.parse(localStorage.getItem('favorites')||'[]');
+let shuffle = JSON.parse(localStorage.getItem('shuffle')||'false');
+let repeat = localStorage.getItem('repeat')||'off'; // "off" | "one" | "all"
+let favMode = JSON.parse(localStorage.getItem('favMode')||'false');
+let volume = parseFloat(localStorage.getItem('volume')||'0.8');
+let speed = parseFloat(localStorage.getItem('speed')||'1.0');
+
+const RECENT_HISTORY_SIZE = 12;
+let recentlyPlayed = [];
+
+/* utilities */
+function fmtTime(sec){
+  if (!isFinite(sec)) return '0:00';
+  const m = Math.floor(sec/60);
+  const s = Math.floor(sec%60);
+  return `${m}:${String(s).padStart(2,'0')}`;
+}
+function saveSettings(){
+  localStorage.setItem('shuffle', JSON.stringify(shuffle));
+  localStorage.setItem('repeat', repeat);
+  localStorage.setItem('favMode', JSON.stringify(favMode));
+  localStorage.setItem('volume', String(volume));
+  localStorage.setItem('speed', String(speed));
+}
+function saveCurrentTrackIndex(){
+  localStorage.setItem('currentTrackIndex', String(currentTrackIndex));
+}
+
+/* ---------------------------
+   トラック読み込み（遅延ロード）
+   --------------------------- */
+async function loadTracksIfNeeded(){
+  if (tracks.length) return;
+  try {
+    const res = await fetch('tracks.json', {cache:'no-store'});
+    if (!res.ok) throw new Error('network');
+    const arr = await res.json();
+    if (Array.isArray(arr)) tracks = arr;
+    else tracks = [];
+    populateArtists();
+    applyFilters();
+    // restore last track index
+    const saved = parseInt(localStorage.getItem('currentTrackIndex'));
+    if (!isNaN(saved) && saved >= 0 && saved < tracks.length) {
+      currentTrackIndex = saved;
+      const pos = filteredIndices.indexOf(currentTrackIndex);
+      currentFilteredIndex = pos >= 0 ? pos : 0;
+    } else {
+      currentFilteredIndex = 0;
+    }
+    loadTrackByFilteredIndex(currentFilteredIndex, false);
+  } catch(e){
+    console.error('tracks.json 読み込み失敗', e);
+    info.textContent = 'tracksの読み込みに失敗しました';
+  }
+}
+
+/* ---------------------------
+   フィルタ / リスト描画
+   --------------------------- */
+function populateArtists(){
+  const artists = [...new Set(tracks.map(t => t.artist).filter(Boolean))].sort();
+  artistFilter.innerHTML = '<option value="">すべてのアーティスト</option>';
+  artists.forEach(a=>{
+    const o = document.createElement('option');
+    o.value = a; o.textContent = a;
+    artistFilter.appendChild(o);
+  });
+}
+
+function applyFilters(){
+  const kw = (searchBox.value || '').trim().toLowerCase();
+  const artist = artistFilter.value;
+  filteredIndices = tracks.map((t,i)=>i).filter(i=>{
+    const t0 = tracks[i];
+    if (!t0) return false;
+    if (artist && t0.artist !== artist) return false;
+    if (kw && !( (t0.title||'').toLowerCase().includes(kw) || (t0.artist||'').toLowerCase().includes(kw) )) return false;
+    if (favMode && !favorites.includes(t0.title)) return false;
+    return true;
+  });
+  if (!filteredIndices.length){
+    trackListEl.innerHTML = '<div style="padding:10px;color:#777">該当する曲がありません</div>';
+    info.textContent = 'トラック無し';
+    return;
+  }
+  // if currentTrackIndex not in filtered -> reset to first
+  const pos = filteredIndices.indexOf(currentTrackIndex);
+  if (pos === -1) currentFilteredIndex = 0;
+  renderList();
+}
+
+/* render list with favorite icon */
+function renderList(){
+  trackListEl.innerHTML = '';
+  filteredIndices.forEach((trackIdx, idx) => {
+    const t = tracks[trackIdx];
+    const div = document.createElement('div');
+    div.className = 'track' + (idx === currentFilteredIndex ? ' playing' : '');
+    const left = document.createElement('div');
+    left.style.flex = '1';
+    left.style.userSelect = 'none';
+    left.textContent = `${t.title} ／ ${t.artist}`;
+    left.onclick = () => loadTrackByFilteredIndex(idx, true);
+
+    const right = document.createElement('div');
+    right.style.display = 'flex';
+    right.style.alignItems = 'center';
+
+    const fav = document.createElement('span');
+    fav.className = 'favorite' + (favorites.includes(t.title) ? ' active' : '');
+    fav.innerHTML = favorites.includes(t.title) ? '❤' : '♡';
+    fav.title = favorites.includes(t.title) ? 'お気に入り解除' : 'お気に入りに追加';
+    fav.onclick = (e) => { e.stopPropagation(); toggleFavorite(t.title); };
+
+    right.appendChild(fav);
+    div.appendChild(left);
+    div.appendChild(right);
+    trackListEl.appendChild(div);
+  });
+}
+
+/* ---------------------------
+   再生制御（filteredIndices を基準）
+   --------------------------- */
+function loadTrackByFilteredIndex(filteredIdx, shouldPlay){
+  if (!filteredIndices.length) return;
+  if (filteredIdx < 0) filteredIdx = filteredIndices.length - 1;
+  if (filteredIdx >= filteredIndices.length) filteredIdx = 0;
+  currentFilteredIndex = filteredIdx;
+  currentTrackIndex = filteredIndices[currentFilteredIndex];
+  const t = tracks[currentTrackIndex];
+  if (!t) return;
+  audio.src = t.url;
+  audio.volume = volume;
+  audio.playbackRate = speed;
+  info.textContent = t.title || '---';
+  metaSmall.textContent = t.artist || '';
+  artImg.src = t.artwork || 'https://raw.githubusercontent.com/j20252097/a/refs/heads/main/Guild.png';
+  // rotate if playing
+  if (!audio.paused) artwrap.classList.add('playing'); else artwrap.classList.remove('playing');
+  renderList();
+  saveCurrentTrackIndex();
+  updateMediaSession(t);
+  updateMini();
+  if (shouldPlay) {
+    audio.play().catch(()=>{/* ignore playback rejection */});
+  }
+}
+
+function determineNextIndex(){
+  if (!filteredIndices.length) return null;
+  if (shuffle) {
+    if (filteredIndices.length === 1) return currentFilteredIndex;
+    let attempts = 0; let pick;
+    do { pick = Math.floor(Math.random()*filteredIndices.length); attempts++; } while (pick === currentFilteredIndex && attempts < 8);
+    const pickedTrackIdx = filteredIndices[pick];
+    if (!recentlyPlayed.includes(pickedTrackIdx)){
+      recentlyPlayed.unshift(pickedTrackIdx);
+      if (recentlyPlayed.length > RECENT_HISTORY_SIZE) recentlyPlayed.pop();
+      return pick;
+    } else {
+      return (currentFilteredIndex + 1) % filteredIndices.length;
+    }
+  } else {
+    let next = currentFilteredIndex + 1;
+    if (next >= filteredIndices.length){
+      if (repeat === 'all') next = 0;
+      else return null;
+    }
+    return next;
+  }
+}
+
+function nextTrack(){
+  const ni = determineNextIndex();
+  if (ni === null) { audio.pause(); return; }
+  loadTrackByFilteredIndex(ni, true);
+}
+function prevTrack(){
+  if (!filteredIndices.length) return;
+  if (shuffle) {
+    const pick = Math.floor(Math.random()*filteredIndices.length);
+    loadTrackByFilteredIndex(pick, true);
+  } else {
+    let prev = currentFilteredIndex - 1;
+    if (prev < 0){
+      if (repeat === 'all') prev = filteredIndices.length - 1;
+      else { audio.pause(); return; }
+    }
+    loadTrackByFilteredIndex(prev, true);
+  }
+}
+
+/* favorites */
+function toggleFavorite(title){
+  if (!title) return;
+  if (favorites.includes(title)) favorites = favorites.filter(x => x !== title);
+  else favorites.push(title);
+  localStorage.setItem('favorites', JSON.stringify(favorites));
+  applyFilters();
+}
+
+/* MediaSession */
+function updateMediaSession(track){
+  if (!('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: track.title || '',
+      artist: track.artist || '',
+      artwork: [
+        { src: track.artwork || 'https://raw.githubusercontent.com/j20252097/a/refs/heads/main/Guild.png', sizes:'512x512', type:'image/png' }
+      ]
+    });
+    navigator.mediaSession.setActionHandler('play', ()=> audio.play());
+    navigator.mediaSession.setActionHandler('pause', ()=> audio.pause());
+    navigator.mediaSession.setActionHandler('previoustrack', ()=> prevTrack());
+    navigator.mediaSession.setActionHandler('nexttrack', ()=> nextTrack());
+    if (navigator.mediaSession.setPositionState && audio.duration && !isNaN(audio.duration)){
+      try { navigator.mediaSession.setPositionState({ duration: audio.duration, playbackRate: audio.playbackRate, position: audio.currentTime }); } catch(e) {}
+    }
+  } catch(e){
+    console.warn('MediaSession error', e);
+  }
+}
+
+/* ---------------------------
+   UI イベント
+   --------------------------- */
+
+/* ripple effect */
+function attachRippleButtons(){
+  document.querySelectorAll('.ripple-btn').forEach(btn=>{
+    btn.addEventListener('click', function(e){
+      const r = document.createElement('span');
+      r.className = 'ripple';
+      const rect = this.getBoundingClientRect();
+      const size = Math.max(rect.width, rect.height) * 1.2;
+      r.style.width = r.style.height = size + 'px';
+      r.style.left = (e.clientX - rect.left - size/2) + 'px';
+      r.style.top = (e.clientY - rect.top - size/2) + 'px';
+      this.appendChild(r);
+      setTimeout(()=> r.remove(), 650);
+    });
+  });
+}
+attachRippleButtons();
+
+/* top controls */
+playBtn.addEventListener('click', async ()=>{
+  if (!tracks.length) await loadTracksIfNeeded();
+  if (!audio.src && filteredIndices.length) loadTrackByFilteredIndex(currentFilteredIndex, false);
+  if (audio.paused) {
+    try { await audio.play(); } catch(e) { console.warn('play failed', e); }
+  } else {
+    audio.pause();
+  }
+});
+nextBtn.addEventListener('click', ()=> nextTrack());
+prevBtn.addEventListener('click', ()=> prevTrack());
+
+shuffleBtn.addEventListener('click', ()=>{ shuffle = !shuffle; shuffleBtn.classList.toggle('active', shuffle); saveSettings(); recentlyPlayed = []; });
+repeatBtn.addEventListener('click', ()=>{
+  repeat = repeat === 'off' ? 'one' : repeat === 'one' ? 'all' : 'off';
+  repeatBtn.classList.toggle('active', repeat !== 'off');
+  repeatBtn.textContent = repeat === 'one' ? '🔂 リピート: 1曲' : repeat === 'all' ? '🔁 リピート: 全体' : '🔁 リピート: オフ';
+  saveSettings();
+});
+favModeBtn.addEventListener('click', ()=>{ favMode = !favMode; favModeBtn.classList.toggle('active', favMode); localStorage.setItem('favMode', JSON.stringify(favMode)); applyFilters(); });
+
+/* mini controls */
+miniPlay.addEventListener('click', ()=> playBtn.click());
+miniPrev.addEventListener('click', ()=> prevTrack());
+mini.addEventListener('click', (e)=>{/* no-op container click */});
+
+/* sliders */
+volumeSlider.value = volume; volumeValue.textContent = Math.round(volume*100);
+volumeSlider.addEventListener('input', ()=>{
+  volume = parseFloat(volumeSlider.value);
+  audio.volume = volume;
+  volumeValue.textContent = Math.round(volume*100);
+  localStorage.setItem('volume', String(volume));
+});
+speedSlider.value = speed; speedValue.textContent = speed.toFixed(1);
+speedSlider.addEventListener('input', ()=>{
+  speed = parseFloat(speedSlider.value);
+  audio.playbackRate = speed;
+  speedValue.textContent = speed.toFixed(1);
+  localStorage.setItem('speed', String(speed));
+});
+
+/* search & filter */
+searchBox.addEventListener('input', applyFilters);
+artistFilter.addEventListener('change', applyFilters);
+
+/* progress seek */
+progressContainer.addEventListener('click', (e)=>{
+  if (!audio.duration) return;
+  const rect = progressContainer.getBoundingClientRect();
+  const pos = (e.clientX - rect.left) / rect.width;
+  audio.currentTime = pos * audio.duration;
+});
+
+/* mini progress seek (allow click on bar area) */
+document.getElementById('miniPlayer').addEventListener('click', (e)=>{
+  // only seek if click near mini progress area
+  const rect = mini.getBoundingClientRect();
+  const px = e.clientX - rect.left;
+  const pwidth = rect.width - 200; // approximate area for progress (title + buttons occupy)
+  // Better: use miniProgress container boundaries — we have progress area width fixed, skip complex; ignore for now.
+});
+
+/* audio events */
+audio.addEventListener('timeupdate', ()=>{
+  if (!audio.duration) return;
+  const percent = (audio.currentTime / audio.duration) * 100;
+  progressBar.style.width = percent + '%';
+  timeDisplay.textContent = fmtTime(audio.currentTime); // only current time as requested
+  miniProgress.style.width = percent + '%';
+  // update media session position
+  if (navigator.mediaSession && navigator.mediaSession.setPositionState){
+    try { navigator.mediaSession.setPositionState({ duration: audio.duration, playbackRate: audio.playbackRate, position: audio.currentTime }); } catch(e) {}
+  }
+});
+audio.addEventListener('play', ()=>{
+  playBtn.textContent = '⏸ 停止';
+  miniPlay.textContent = '⏸';
+  artwrap.classList.add('playing');
+  mini.style.display = 'flex';
+});
+audio.addEventListener('pause', ()=>{
+  playBtn.textContent = '▶️ 再生';
+  miniPlay.textContent = '▶️';
+  artwrap.classList.remove('playing');
+});
+audio.addEventListener('ended', ()=>{
+  if (repeat === 'one') { audio.currentTime = 0; audio.play(); }
+  else nextTrack();
+});
+
+/* update mini UI */
+function updateMini(){
+  const t = tracks[currentTrackIndex];
+  if (!t) { mini.style.display = 'none'; return; }
+  miniTitle.textContent = `${t.title} — ${t.artist || ''}`;
+  const p = (audio.currentTime && audio.duration) ? (audio.currentTime / audio.duration) * 100 : 0;
+  miniProgress.style.width = p + '%';
+  mini.style.display = 'flex';
+}
+
+/* decorative particles & wave (lightweight) */
+(function particles(){
+  const c = document.getElementById('particles'), ctx = c.getContext('2d');
+  let w=0,h=0, arr=[];
+  function resize(){ w=c.width=innerWidth; h=c.height=innerHeight; init(); }
+  function init(){
+    arr = [];
+    const count = Math.max(20, Math.floor((w*h)/90000));
+    for (let i=0;i<count;i++){
+      arr.push({ x: Math.random()*w, y: Math.random()*h, r: 0.6 + Math.random()*2.4, vx: (Math.random()-0.5)*0.2, vy: -0.15 - Math.random()*0.2, a: 0.04 + Math.random()*0.18});
+    }
+  }
+  window.addEventListener('resize', resize);
+  resize();
+  let t=0;
+  (function loop(){ requestAnimationFrame(loop); t+=0.01; ctx.clearRect(0,0,w,h); arr.forEach(p=>{ p.x += p.vx; p.y += p.vy; if (p.y < -10){ p.y = h + 10; p.x = Math.random()*w; } ctx.beginPath(); ctx.fillStyle = `rgba(160,140,255,${p.a})`; ctx.arc(p.x + Math.sin(t + p.x*0.001)*12, p.y + Math.cos(t + p.x*0.001)*6, p.r, 0, Math.PI*2); ctx.fill(); }) })();
+})();
+
+(function wave(){
+  const c = document.getElementById('wave'), ctx = c.getContext('2d');
+  let w=0,h=0; function onResize(){ w=c.width=innerWidth; h=c.height=innerHeight; } window.addEventListener('resize', onResize); onResize();
+  let tt=0;
+  (function draw(){ requestAnimationFrame(draw); tt+=0.008; ctx.clearRect(0,0,w,h); for (let layer=0;layer<3;layer++){ ctx.beginPath(); const amp = 8 + layer*6; const freq = 0.004 + layer*0.002; for (let x=0;x<=w;x+=8){ const y = h*0.5 + Math.sin((x*freq) + tt*(1+layer*0.2) + layer) * amp * Math.sin(tt*0.4 + layer); if (x===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); } ctx.strokeStyle = `rgba(120,100,255,${0.05 + layer*0.05})`; ctx.lineWidth = 2; ctx.stroke(); } })();
+})();
+
+/* initial UI setup */
+(function initial(){
+  shuffleBtn.classList.toggle('active', shuffle);
+  favModeBtn.classList.toggle('active', favMode);
+  repeatBtn.textContent = repeat === 'one' ? '🔂 リピート: 1曲' : repeat === 'all' ? '🔁 リピート: 全体' : '🔁 リピート: オフ';
+  repeatBtn.classList.toggle('active', repeat !== 'off');
+  audio.volume = volume;
+  audio.playbackRate = speed;
+  volumeSlider.value = volume; volumeValue.textContent = Math.round(volume*100);
+  speedSlider.value = speed; speedValue.textContent = speed.toFixed(1);
+  // keyboard space control
+  document.addEventListener('keydown', (e)=>{
+    if (e.code === 'Space' && document.activeElement.tagName !== 'INPUT') { e.preventDefault(); playBtn.click(); }
+  });
+})();
+
+/* try preload tracks.json non-blocking */
+(async function tryPreload(){
+  try {
+    const r = await fetch('tracks.json', {cache:'no-store'});
+    if (r.ok){
+      const arr = await r.json();
+      if (Array.isArray(arr) && arr.length){
+        tracks = arr;
+        populateArtists();
+        applyFilters();
+        const saved = parseInt(localStorage.getItem('currentTrackIndex'));
+        if (!isNaN(saved) && saved >= 0 && saved < tracks.length){
+          currentTrackIndex = saved;
+          const pos = filteredIndices.indexOf(currentTrackIndex);
+          currentFilteredIndex = pos >= 0 ? pos : 0;
+        } else currentFilteredIndex = 0;
+        loadTrackByFilteredIndex(currentFilteredIndex, false);
+      }
+    }
+  } catch(e){ /* ignore */ }
+})();
+
+/* expose load for play button (if needed externally) */
+window.loadTracksIfNeeded = loadTracksIfNeeded;
+
+/* ---------------------------
+   ローカルフォルダ & 曲アップロード (IndexedDB)
+   - folders store: { id, name }
+   - files store: { id, folderId, name, mime, blob, artist, title, artwork (opt) }
+   --------------------------- */
+
+const DB_NAME = 'music_local_db_v1';
+const DB_VERSION = 1;
+let dbPromise = null;
+
+function openDb(){
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('folders')){
+        db.createObjectStore('folders', { keyPath: 'id', autoIncrement: true });
+      }
+      if (!db.objectStoreNames.contains('files')){
+        const s = db.createObjectStore('files', { keyPath: 'id', autoIncrement: true });
+        s.createIndex('folderId', 'folderId', { unique: false });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return dbPromise;
+}
+
+async function createFolder(name){
+  const db = await openDb();
+  return new Promise((res, rej)=>{
+    const tx = db.transaction('folders','readwrite');
+    const store = tx.objectStore('folders');
+    const r = store.add({ name });
+    r.onsuccess = () => { res(r.result); refreshFoldersList(); };
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function listFolders(){
+  const db = await openDb();
+  return new Promise((res, rej)=>{
+    const tx = db.transaction('folders','readonly');
+    const store = tx.objectStore('folders');
+    const r = store.getAll();
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function addFileToFolder(folderId, file){
+  const db = await openDb();
+  return new Promise((res, rej)=>{
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const blob = new Blob([ev.target.result], { type: file.type });
+      const meta = { folderId, name: file.name, mime: file.type, blob, artist: '', title: file.name };
+      const tx = db.transaction('files','readwrite');
+      const store = tx.objectStore('files');
+      const r = store.add(meta);
+      r.onsuccess = () => { res(r.result); refreshFolderFiles(folderId); };
+      r.onerror = () => rej(r.error);
+    };
+    reader.onerror = () => rej(reader.error);
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+async function listFilesInFolder(folderId){
+  const db = await openDb();
+  return new Promise((res, rej)=>{
+    const tx = db.transaction('files','readonly');
+    const store = tx.objectStore('files');
+    const idx = store.index('folderId');
+    const r = idx.getAll(IDBKeyRange.only(folderId));
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function deleteFile(id, folderId){
+  const db = await openDb();
+  return new Promise((res, rej)=>{
+    const tx = db.transaction('files','readwrite');
+    const store = tx.objectStore('files');
+    const r = store.delete(id);
+    r.onsuccess = () => { res(); refreshFolderFiles(folderId); };
+    r.onerror = () => rej(r.error);
+  });
+}
+
+async function refreshFoldersList(){
+  const container = document.getElementById('foldersList');
+  const folders = await listFolders();
+  container.innerHTML = '';
+  folders.forEach(f=>{
+    const btn = document.createElement('div');
+    btn.dataset.folderId = String(f.id);
+    btn.style.display = 'flex'; btn.style.justifyContent = 'space-between'; btn.style.alignItems = 'center'; btn.style.padding = '6px 8px'; btn.style.borderRadius = '8px'; btn.style.cursor = 'pointer'; btn.style.marginBottom='6px'; btn.style.background='#fff';
+    btn.textContent = f.name;
+    btn.onclick = ()=> selectFolder(f.id);
+    const del = document.createElement('button'); del.textContent='✖'; del.title='フォルダ内の曲は削除されます'; del.style.marginLeft='8px'; del.onclick = async (e)=>{ e.stopPropagation(); await deleteFolder(f.id); };
+    btn.appendChild(del);
+    // visual highlight when this is the selected folder
+    if (selectedFolderId !== null && String(selectedFolderId) === String(f.id)){
+      btn.style.boxShadow = '0 6px 18px rgba(100,80,160,0.12)';
+      btn.style.background = 'linear-gradient(90deg,#fff,#f6f5ff)';
+    }
+    container.appendChild(btn);
+  });
+}
+
+async function deleteFolder(folderId){
+  const db = await openDb();
+  // delete files then folder
+  const tx = db.transaction(['files','folders'],'readwrite');
+  const fStore = tx.objectStore('files');
+  const idx = fStore.index('folderId');
+  const req = idx.openCursor(IDBKeyRange.only(folderId));
+  req.onsuccess = (e)=>{
+    const cur = e.target.result;
+    if (cur){ cur.delete(); cur.continue(); }
+  };
+  req.onerror = ()=>{};
+  tx.oncomplete = async ()=>{
+    const tx2 = db.transaction('folders','readwrite');
+    tx2.objectStore('folders').delete(folderId);
+    tx2.oncomplete = ()=>{ 
+      // if deleted folder was selected, clear selection and track list
+      if (String(selectedFolderId) === String(folderId)){
+        selectedFolderId = null;
+        document.getElementById('trackList').innerHTML = '';
+      }
+      refreshFoldersList();
+    };
+  };
+}
+
+let selectedFolderId = null;
+async function selectFolder(folderId){
+  selectedFolderId = folderId;
+  // highlight selection
+  Array.from(document.getElementById('foldersList').children).forEach(el=> el.style.boxShadow = 'none');
+  const container = document.getElementById('foldersList');
+  for (const el of container.children){ if (el.onclick && el.textContent && el.textContent.includes(String(folderId)) ){} }
+  // refresh file list UI
+  refreshFolderFiles(folderId);
+}
+
+async function refreshFolderFiles(folderId){
+  const list = await listFilesInFolder(folderId);
+  // merge into tracks array so player can play them via object URLs
+  // create a temp array of file-based tracks; these won't persist to tracks.json
+  const fileTracks = list.map(f=>{
+    const url = URL.createObjectURL(f.blob);
+    return { url, title: f.name, artist: f.artist || '', artwork: '' , _localId: f.id, _folderId: f.folderId };
+  });
+  // append these to the start of displayed tracks (but keep original tracks intact)
+  // We'll show them in the UI as a separate section
+  const trackList = document.getElementById('trackList');
+  trackList.innerHTML = '';
+  if (!list.length) trackList.innerHTML = '<div style="padding:10px;color:#777">このフォルダに曲がありません</div>';
+  fileTracks.forEach((t, idx)=>{
+    const div = document.createElement('div'); div.className='track';
+    const left = document.createElement('div'); left.style.flex='1'; left.textContent = t.title;
+    left.onclick = ()=>{ audio.src = t.url; audio.play(); info.textContent = t.title; metaSmall.textContent = t.artist || ''; updateMini(); };
+    const right = document.createElement('div'); right.style.display='flex'; right.style.alignItems='center';
+    const del = document.createElement('button'); del.textContent='削除'; del.onclick = (e)=>{ e.stopPropagation(); deleteFile(t._localId, t._folderId); };
+    right.appendChild(del);
+    div.appendChild(left); div.appendChild(right); trackList.appendChild(div);
+  });
+}
+
+/* wire up UI controls */
+document.getElementById('createFolderBtn').addEventListener('click', async ()=>{
+  const name = document.getElementById('newFolderName').value.trim();
+  if (!name) return alert('フォルダ名を入力してください');
+  try{
+    const id = await createFolder(name);
+    document.getElementById('newFolderName').value = '';
+    // auto-select the newly created folder
+    selectFolder(id);
+  }catch(e){ console.warn('フォルダ作成エラー', e); alert('フォルダ作成に失敗しました'); }
+});
+
+document.getElementById('uploadToFolderBtn').addEventListener('click', async ()=>{
+  const input = document.getElementById('fileInput');
+  if (!selectedFolderId) return alert('アップロード先のフォルダを選択してください');
+  if (!input.files || !input.files.length) return alert('アップロードする音声ファイルを選択してください');
+  for (const f of input.files) await addFileToFolder(selectedFolderId, f);
+  input.value = '';
+});
+
+// initial folders load
+(async ()=>{ try{ await openDb(); await refreshFoldersList(); }catch(e){ console.warn('DB init failed', e); } })();
+
+</script>
+</body>
+</html>

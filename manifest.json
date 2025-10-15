@@ -1,0 +1,15 @@
+{
+  "name": "ミュージックプレイヤー 🎧",
+  "short_name": "MusicPlayer",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#eae7ff",
+  "theme_color": "#a58ff7",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/j20252097/a/refs/heads/main/Guild.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
