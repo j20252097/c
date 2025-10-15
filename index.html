@@ -318,14 +318,45 @@ function renderList(){
 // save a remote track (URL) into a folder by fetching its data and storing as blob in IndexedDB
 async function saveRemoteTrackToFolder(track, folderId){
   try{
-    const res = await fetch(track.url);
-    if (!res.ok) throw new Error('fetch failed');
+    let url = track.url;
+    let res = null;
+    // try initial fetch
+    try { res = await fetch(url, { mode: 'cors' }); }
+    catch(e){ console.warn('初回fetch失敗', e); }
+
+    // if not ok, and URL looks like github.com, try rewrite to raw.githubusercontent.com
+    if (!res || !res.ok){
+      if (url.includes('github.com')){
+        // convert common GitHub URL patterns to raw.githubusercontent.com
+        // examples:
+        // https://github.com/user/repo/raw/refs/heads/main/path -> https://raw.githubusercontent.com/user/repo/main/path
+        // https://github.com/user/repo/blob/main/path -> https://raw.githubusercontent.com/user/repo/main/path
+        let u2 = url.replace('https://github.com/', 'https://raw.githubusercontent.com/');
+        u2 = u2.replace('/raw/refs/heads/','/');
+        u2 = u2.replace('/blob/','/');
+        console.info('try rewritten github raw url ->', u2);
+        try { res = await fetch(u2, { mode: 'cors' }); url = u2; }
+        catch(e){ console.warn('rewritten fetch失敗', e); }
+      }
+    }
+
+    if (!res || !res.ok){
+  console.warn('remote save failed - CORS or network', res);
+  alert(`外部ファイルの取得に失敗しました。
+このファイルは GitHub のホスティング先の CORS 設定により直接取得できない可能性があります。
+対処方法:
+・該当ファイルをダウンロードして、右側の「ファイル選択」から手動でアップロードしてください。
+・可能ならファイルを GitHub Pages（https://<youruser>.github.io/...）上に置き、tracks.json の URL をその公開URLに変更してください。`);
+      return;
+    }
+
     const ab = await res.arrayBuffer();
-    const fileLike = new File([ab], track.title || 'remote-track', { type: res.headers.get('content-type') || 'audio/mpeg' });
+    const contentType = res.headers && res.headers.get ? (res.headers.get('content-type') || 'audio/mpeg') : 'audio/mpeg';
+    const fileLike = new File([ab], (track.title || 'remote-track').replace(/[^a-z0-9\.\-_ ]/ig, '_'), { type: contentType });
     await addFileToFolder(folderId, fileLike);
     alert('曲をフォルダに保存しました');
     if (String(selectedFolderId) === String(folderId)) refreshFolderFiles(folderId);
-  }catch(e){ console.warn('remote save failed', e); alert('曲の保存に失敗しました'); }
+  }catch(e){ console.warn('remote save failed', e); alert('曲の保存中にエラーが発生しました'); }
 }
 
 // view mode buttons
