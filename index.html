@@ -129,6 +129,12 @@
         <input id="searchBox" placeholder="🔍 曲名やアーティストで検索..." />
         <select id="artistFilter"><option value="">すべてのアーティスト</option></select>
 
+        <div style="display:flex;gap:6px;margin-top:6px;align-items:center;">
+          <button id="viewAllBtn" class="ripple-btn active">すべて</button>
+          <button id="viewRemoteBtn" class="ripple-btn">元の曲</button>
+          <button id="viewLocalBtn" class="ripple-btn">ローカル曲</button>
+        </div>
+
         <div style="display:flex;gap:8px;align-items:center;margin-top:8px;">
           <input id="fileInput" type="file" accept="audio/*" multiple style="flex:1" />
           <button id="uploadToFolderBtn" class="ripple-btn">アップロード</button>
@@ -199,6 +205,7 @@ let speed = parseFloat(localStorage.getItem('speed')||'1.0');
 
 const RECENT_HISTORY_SIZE = 12;
 let recentlyPlayed = [];
+let viewMode = 'all'; // 'all' | 'remote' | 'local'
 
 /* utilities */
 function fmtTime(sec){
@@ -285,30 +292,75 @@ function applyFilters(){
 /* render list with favorite icon */
 function renderList(){
   trackListEl.innerHTML = '';
-  filteredIndices.forEach((trackIdx, idx) => {
-    const t = tracks[trackIdx];
-    const div = document.createElement('div');
-    div.className = 'track' + (idx === currentFilteredIndex ? ' playing' : '');
-    const left = document.createElement('div');
-    left.style.flex = '1';
-    left.style.userSelect = 'none';
-    left.textContent = `${t.title} ／ ${t.artist}`;
-    left.onclick = () => loadTrackByFilteredIndex(idx, true);
+  // remote tracks (from tracks.json)
+  if (viewMode === 'all' || viewMode === 'remote'){
+    const header = document.createElement('div'); header.style.padding='6px 8px'; header.style.color='#666'; header.textContent = '元の曲'; trackListEl.appendChild(header);
+    filteredIndices.forEach((trackIdx, idx) => {
+      const t = tracks[trackIdx];
+      const div = document.createElement('div');
+      div.className = 'track' + (idx === currentFilteredIndex ? ' playing' : '');
+      const left = document.createElement('div'); left.style.flex = '1'; left.style.userSelect = 'none'; left.textContent = `${t.title} ／ ${t.artist}`;
+      left.onclick = () => loadTrackByFilteredIndex(idx, true);
+      const right = document.createElement('div'); right.style.display = 'flex'; right.style.alignItems = 'center';
+      const fav = document.createElement('span'); fav.className = 'favorite' + (favorites.includes(t.title) ? ' active' : ''); fav.innerHTML = favorites.includes(t.title) ? '❤' : '♡'; fav.title = favorites.includes(t.title) ? 'お気に入り解除' : 'お気に入りに追加'; fav.onclick = (e) => { e.stopPropagation(); toggleFavorite(t.title); };
+      right.appendChild(fav);
+      // if folder selected, show add-to-folder button for remote tracks
+      if (selectedFolderId){
+        const addBtn = document.createElement('button'); addBtn.textContent = 'フォルダに追加'; addBtn.style.marginLeft='8px'; addBtn.onclick = async (e)=>{ e.stopPropagation(); await saveRemoteTrackToFolder(t, selectedFolderId); };
+        right.appendChild(addBtn);
+      }
+      div.appendChild(left); div.appendChild(right); trackListEl.appendChild(div);
+    });
+  }
+  // local tracks section will be shown via refreshFolderFiles when a folder is selected
+}
 
-    const right = document.createElement('div');
-    right.style.display = 'flex';
-    right.style.alignItems = 'center';
+// save a remote track (URL) into a folder by fetching its data and storing as blob in IndexedDB
+async function saveRemoteTrackToFolder(track, folderId){
+  try{
+    const res = await fetch(track.url);
+    if (!res.ok) throw new Error('fetch failed');
+    const ab = await res.arrayBuffer();
+    const fileLike = new File([ab], track.title || 'remote-track', { type: res.headers.get('content-type') || 'audio/mpeg' });
+    await addFileToFolder(folderId, fileLike);
+    alert('曲をフォルダに保存しました');
+    if (String(selectedFolderId) === String(folderId)) refreshFolderFiles(folderId);
+  }catch(e){ console.warn('remote save failed', e); alert('曲の保存に失敗しました'); }
+}
 
-    const fav = document.createElement('span');
-    fav.className = 'favorite' + (favorites.includes(t.title) ? ' active' : '');
-    fav.innerHTML = favorites.includes(t.title) ? '❤' : '♡';
-    fav.title = favorites.includes(t.title) ? 'お気に入り解除' : 'お気に入りに追加';
-    fav.onclick = (e) => { e.stopPropagation(); toggleFavorite(t.title); };
+// view mode buttons
+document.getElementById('viewAllBtn').addEventListener('click', ()=>{ viewMode='all'; document.getElementById('viewAllBtn').classList.add('active'); document.getElementById('viewRemoteBtn').classList.remove('active'); document.getElementById('viewLocalBtn').classList.remove('active'); renderList(); });
+document.getElementById('viewRemoteBtn').addEventListener('click', ()=>{ viewMode='remote'; document.getElementById('viewAllBtn').classList.remove('active'); document.getElementById('viewRemoteBtn').classList.add('active'); document.getElementById('viewLocalBtn').classList.remove('active'); renderList(); });
+document.getElementById('viewLocalBtn').addEventListener('click', ()=>{ viewMode='local'; document.getElementById('viewAllBtn').classList.remove('active'); document.getElementById('viewRemoteBtn').classList.remove('active'); document.getElementById('viewLocalBtn').classList.add('active');
+  // if a folder is selected, refresh its files; otherwise show all local files across folders
+  if (selectedFolderId) refreshFolderFiles(selectedFolderId);
+  else showAllLocalFiles();
+});
 
-    right.appendChild(fav);
-    div.appendChild(left);
-    div.appendChild(right);
-    trackListEl.appendChild(div);
+async function showAllLocalFiles(){
+  const db = await openDb();
+  return new Promise((res, rej)=>{
+    const tx = db.transaction('files','readonly');
+    const store = tx.objectStore('files');
+    const r = store.getAll();
+    r.onsuccess = ()=>{
+      const list = r.result || [];
+      const trackList = document.getElementById('trackList'); trackList.innerHTML='';
+      const header = document.createElement('div'); header.style.padding='6px 8px'; header.style.color='#666'; header.textContent = 'ローカル曲'; trackList.appendChild(header);
+      if (!list.length) trackList.innerHTML += '<div style="padding:10px;color:#777">ローカルに保存された曲はありません</div>';
+      list.forEach(f=>{
+        const url = URL.createObjectURL(f.blob);
+        const div = document.createElement('div'); div.className='track';
+        const left = document.createElement('div'); left.style.flex='1'; left.textContent = f.name;
+        left.onclick = ()=>{ audio.src = url; audio.play(); info.textContent = f.name; metaSmall.textContent = f.artist || ''; updateMini(); };
+        const right = document.createElement('div'); right.style.display='flex'; right.style.alignItems='center';
+        const del = document.createElement('button'); del.textContent='削除'; del.onclick = (e)=>{ e.stopPropagation(); deleteFile(f.id, f.folderId); };
+        right.appendChild(del);
+        div.appendChild(left); div.appendChild(right); trackList.appendChild(div);
+      });
+      res(list);
+    };
+    r.onerror = ()=> rej(r.error);
   });
 }
 
